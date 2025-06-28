@@ -1,6 +1,8 @@
 import time
 import json
 import re
+import sys
+import argparse
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -86,10 +88,6 @@ def scroll_to_bottom(driver, pause=2, max_idle=3):
             idle_rounds = 0
             last_height = new_height
 
-def scroll_one_step(driver, pause=2):
-    driver.execute_script("window.scrollBy(0, window.innerHeight);")
-    time.sleep(pause)
-
 def scroll_one_step_to_bottom(driver, pause=2):
     last_height = driver.execute_script("return document.documentElement.scrollHeight")
     driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
@@ -97,15 +95,32 @@ def scroll_one_step_to_bottom(driver, pause=2):
     new_height = driver.execute_script("return document.documentElement.scrollHeight")
     return new_height > last_height
 
-def main():
+def date_to_timestamp(date_str):
+    dt = datetime.strptime(date_str, "%Y/%m/%d")
+    end_of_day = dt.replace(hour=23, minute=59, second=59, microsecond=999000)
+    return int(end_of_day.timestamp() * 1e6)
+
+def get_youtube_history_url(date_str=None):
+    base_url = "https://myactivity.google.com/product/youtube?restrict=youtube"
+    if date_str:
+        max_timestamp = date_to_timestamp(date_str)
+        return f"{base_url}&max={max_timestamp}"
+    return base_url
+
+def main(start_date=None, end_date=None, output_file="youtube_watch_history_stream.json"):
     cookies = load_cookies_from_file("myactivity.google.com_cookies.txt")
     today_str = datetime.today().strftime("%Y-%m-%d")
+    end_dt = None
+    if end_date:
+        end_dt = datetime.strptime(end_date, "%Y/%m/%d")
 
     options = webdriver.EdgeOptions()
     options.add_argument("--start-maximized")
     driver = webdriver.Edge(service=EdgeService(EdgeChromiumDriverManager().install()), options=options)
 
-    driver.get("https://myactivity.google.com/product/youtube")
+    # start_date 對應 max= 參數，end_date 為結束條件
+    url = get_youtube_history_url(start_date)
+    driver.get(url)
     for cookie in cookies:
         try:
             driver.add_cookie(cookie)
@@ -119,7 +134,7 @@ def main():
     seen_logs = set()
     results = []
 
-    MAX_SCROLL_ROUNDS = 1
+    MAX_SCROLL_ROUNDS = float('inf')
     EMPTY_ROUND_THRESHOLD = 3
     rounds = 0
     empty_rounds = 0
@@ -138,6 +153,9 @@ def main():
                 headers = act.find_elements(By.CSS_SELECTOR, "div.MCZgpb > h2.rp10kf")
                 if headers:
                     latest = headers[-1].text.strip()
+                    if latest in seen_urls:
+                        continue
+                    seen_urls.add(latest)
                     if latest and latest != last_header:
                         last_header = latest
                         print(f"[📅 日期更新] 現在使用：{last_header}")
@@ -180,6 +198,17 @@ def main():
                 time_iso = parse_time(full_time, today_str)
                 if not time_iso:
                     continue
+                # 新增結束條件：若 time_iso < end_date，則終止爬蟲
+                if end_dt:
+                    try:
+                        activity_dt = datetime.fromisoformat(time_iso.replace("Z", ""))
+                        if activity_dt < end_dt:
+                            print(f"[STOP] 已達結束日期 {end_date}，終止爬蟲")
+                            driver.quit()
+                            print(f"\n✅ 共儲存 {len(results)} 筆活動至 {output_file}")
+                            return
+                    except Exception as e:
+                        print(f"[WARN] 日期解析失敗: {e}")
 
                 subtitles = []
                 try:
@@ -201,7 +230,7 @@ def main():
                 })
 
                 # 每新增一筆就即時寫入 json 檔案
-                with open("youtube_watch_history_stream.json", "w", encoding="utf-8") as f:
+                with open(output_file, "w", encoding="utf-8") as f:
                     text = json.dumps(results, ensure_ascii=False, indent=2)
                     text = text.replace('},\n  {', '},{')
                     # 處理只有一個元素的陣列（subtitles/products/activityControls等）壓成一行，陣列後面可接逗號或右大括號
@@ -227,8 +256,13 @@ def main():
 
         rounds += 1
 
-    print(f"\n✅ 共儲存 {len(results)} 筆活動至 youtube_watch_history_stream.json")
+    print(f"\n✅ 共儲存 {len(results)} 筆活動至 {output_file}")
     driver.quit()
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--start-date', type=str, help='指定 max= 參數 (格式: YYYY/MM/DD)', default=None)
+    parser.add_argument('--end-date', type=str, help='結束條件，遇到小於這天的活動就停止 (格式: YYYY/MM/DD)', default=None)
+    parser.add_argument('--output', type=str, help='輸出檔案名稱', default='youtube_watch_history_stream.json')
+    args = parser.parse_args()
+    main(args.start_date, args.end_date, args.output)
