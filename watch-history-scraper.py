@@ -107,7 +107,7 @@ def get_youtube_history_url(date_str=None):
         return f"{base_url}&max={max_timestamp}"
     return base_url
 
-def main(start_date=None, end_date=None, output_file="youtube_watch_history_stream.json"):
+def main(start_date=None, end_date=None, output_file="youtube_watch_history.json"):
     cookies = load_cookies_from_file("myactivity.google.com_cookies.txt")
     today_str = datetime.today().strftime("%Y-%m-%d")
     end_dt = None
@@ -144,7 +144,8 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history_stre
         print(f"\n[SCROLL] 第 {rounds + 1} 次捲動 🔽")
         scroll_one_step_to_bottom(driver, pause=3)
 
-        activities = driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'], div.CW0isc")
+        # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片，不限 jsrenderer
+        activities = driver.find_elements(By.CSS_SELECTOR, "c-wiz.xDtZAf, div.CW0isc")
         print(f"[INFO] 活動+日期區塊數量：{len(activities)}")
         new_found = 0
 
@@ -184,9 +185,15 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history_stre
                     print(f"[LOG] 已查看活動偵測到：{qtgv3c_text}", flush=True)
                     continue  # 目前不處理已查看活動
 
-                if title_url in seen_urls or not title:
+                # 取得唯一ID（c-wiz 內 c-data 的 id 屬性）
+                try:
+                    cdata = act.find_element(By.CSS_SELECTOR, "c-data")
+                    unique_id = cdata.get_attribute('id')
+                except Exception:
+                    unique_id = None
+                if unique_id in seen_urls or not title:
                     continue
-                seen_urls.add(title_url)
+                seen_urls.add(unique_id)
 
                 time_text = act.find_element(By.CSS_SELECTOR, "div.H3Q9vf.XTnvW").text
                 time_label = time_text.split("•")[0].strip()
@@ -263,6 +270,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--start-date', type=str, help='指定 max= 參數 (格式: YYYY/MM/DD)', default=None)
     parser.add_argument('--end-date', type=str, help='結束條件，遇到小於這天的活動就停止 (格式: YYYY/MM/DD)', default=None)
-    parser.add_argument('--output', type=str, help='輸出檔案名稱', default='youtube_watch_history_stream.json')
+    parser.add_argument('--output', type=str, help='輸出檔案名稱', default='youtube_watch_history.json')
     args = parser.parse_args()
     main(args.start_date, args.end_date, args.output)
