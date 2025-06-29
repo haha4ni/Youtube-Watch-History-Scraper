@@ -146,7 +146,7 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
     while rounds < MAX_SCROLL_ROUNDS:
         print(f"\n[SCROLL] 第 {rounds + 1} 次捲動 🔽")
-        for _ in range(5):
+        for _ in range(10):
             scroll_one_step_to_bottom(driver, pause=5)
 
         # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片，不限 jsrenderer
@@ -167,7 +167,22 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                     if latest and latest != last_header:
                         last_header = latest
                         print(f"[📅 日期更新] 現在使用：{last_header}")
-                
+                        # 檢查日期是否早於 end_date，若是則終止
+                        if end_dt:
+                            try:
+                                # 嘗試將 last_header 轉為 datetime 物件
+                                # 假設 last_header 格式為 'YYYY年M月D日'
+                                header_dt = datetime.strptime(last_header, "%Y年%m月%d日")
+                                if header_dt < end_dt:
+                                    print(f"[STOP] 已達結束日期 {end_date}，終止爬蟲")
+                                    elapsed = time.time() - start_time
+                                    print(f"[INFO] 程式總執行時間：{elapsed:.1f} 秒")
+                                    driver.quit()
+                                    print(f"\n✅ 共儲存 {len(results)} 筆活動至 {output_file}")
+                                    return
+                            except Exception as e:
+                                print(f"[WARN] 日期解析失敗: {e}")
+
                 title_elems = act.find_elements(By.CSS_SELECTOR, "div.QTGV3c a.l8sGWb")
                 if not title_elems:
                     continue  # 沒有連結的活動略過
@@ -212,17 +227,6 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                 time_iso = parse_time(full_time, today_str)
                 if not time_iso:
                     continue
-                # 新增結束條件：若 time_iso < end_date，則終止爬蟲
-                if end_dt:
-                    try:
-                        activity_dt = datetime.fromisoformat(time_iso.replace("Z", ""))
-                        if activity_dt < end_dt:
-                            print(f"[STOP] 已達結束日期 {end_date}，終止爬蟲")
-                            driver.quit()
-                            print(f"\n✅ 共儲存 {len(results)} 筆活動至 {output_file}")
-                            return
-                    except Exception as e:
-                        print(f"[WARN] 日期解析失敗: {e}")
 
                 subtitles = []
                 try:
@@ -253,7 +257,11 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                     f.write(text)
 
                 new_found += 1
-                print(f"[✓] 新增：{title} @ {time_iso}")
+                # 取得頻道名稱（若有）
+                channel_display = ""
+                if subtitles and isinstance(subtitles, list) and len(subtitles) > 0:
+                    channel_display = f" | 頻道：{subtitles[0]['name']}"
+                print(f"[✓] 新增：{title} @ {time_iso}{channel_display}")
 
             except Exception as e:
                 print(f"[ERR] 活動處理失敗：{e}")
