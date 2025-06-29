@@ -9,6 +9,19 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.edge.service import Service as EdgeService
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
+class Tee:
+    def __init__(self, *files):
+        self.files = files
+    def write(self, obj):
+        for f in self.files:
+            f.write(obj)
+            f.flush()
+    def flush(self):
+        for f in self.files:
+            f.flush()
+
+sys.stdout = Tee(sys.stdout, open('output_log.txt', 'a', encoding='utf-8'))
+
 def load_cookies_from_file(filename):
     cookies = []
     with open(filename, "r", encoding="utf-8") as f:
@@ -75,19 +88,6 @@ def parse_time(text, today_str):
 
     return None
 
-def scroll_to_bottom(driver, pause=2, max_idle=3):
-    last_height = driver.execute_script("return document.documentElement.scrollHeight")
-    idle_rounds = 0
-    while idle_rounds < max_idle:
-        driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
-        time.sleep(pause)
-        new_height = driver.execute_script("return document.documentElement.scrollHeight")
-        if new_height == last_height:
-            idle_rounds += 1
-        else:
-            idle_rounds = 0
-            last_height = new_height
-
 def scroll_one_step_to_bottom(driver, pause=2):
     last_height = driver.execute_script("return document.documentElement.scrollHeight")
     driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
@@ -108,6 +108,7 @@ def get_youtube_history_url(date_str=None):
     return base_url
 
 def main(start_date=None, end_date=None, output_file="youtube_watch_history.json"):
+    start_time = time.time()
     cookies = load_cookies_from_file("myactivity.google.com_cookies.txt")
     today_str = datetime.today().strftime("%Y-%m-%d")
     end_dt = None
@@ -128,7 +129,10 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
             pass
     driver.refresh()
     time.sleep(5)
-    input("✅ 手動確認已登入並顯示活動後，按 Enter 繼續...")
+    print("✅ 請在 5 秒內手動確認已登入並顯示活動頁面...")
+    for i in range(2, 0, -1):
+        print(f"{i}...")
+        time.sleep(1)
 
     seen_urls = set()
     seen_logs = set()
@@ -142,11 +146,14 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
     while rounds < MAX_SCROLL_ROUNDS:
         print(f"\n[SCROLL] 第 {rounds + 1} 次捲動 🔽")
-        scroll_one_step_to_bottom(driver, pause=3)
+        for _ in range(5):
+            scroll_one_step_to_bottom(driver, pause=5)
 
         # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片，不限 jsrenderer
         activities = driver.find_elements(By.CSS_SELECTOR, "c-wiz.xDtZAf, div.CW0isc")
         print(f"[INFO] 活動+日期區塊數量：{len(activities)}")
+        elapsed = time.time() - start_time
+        print(f"[INFO] 程式已執行 {elapsed:.1f} 秒")
         new_found = 0
 
         for act in activities:
@@ -263,6 +270,8 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
         rounds += 1
 
+    elapsed = time.time() - start_time
+    print(f"[INFO] 程式總執行時間：{elapsed:.1f} 秒")
     print(f"\n✅ 共儲存 {len(results)} 筆活動至 {output_file}")
     driver.quit()
 
