@@ -172,9 +172,15 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                         # 檢查日期是否早於 end_date，若是則終止
                         if end_dt:
                             try:
-                                # 嘗試將 last_header 轉為 datetime 物件
-                                # 假設 last_header 格式為 'YYYY年M月D日'
-                                header_dt = datetime.strptime(last_header, "%Y年%m月%d日")
+                                # 支援有年份、無年份、今天、昨天格式
+                                if "年" in last_header:
+                                    header_dt = datetime.strptime(last_header, "%Y年%m月%d日")
+                                elif "今天" in last_header:
+                                    header_dt = datetime.today()
+                                elif "昨天" in last_header:
+                                    header_dt = datetime.today() - timedelta(days=1)
+                                else:
+                                    header_dt = datetime.strptime(f"{datetime.today().year}年" + last_header, "%Y年%m月%d日")
                                 if header_dt < end_dt:
                                     print(f"[STOP] 已達結束日期 {end_date}，終止爬蟲")
                                     elapsed = time.time() - start_time
@@ -184,51 +190,46 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                                     return
                             except Exception as e:
                                 print(f"[WARN] 日期解析失敗: {e}")
+                    continue
 
-                title_elems = act.find_elements(By.CSS_SELECTOR, "div.QTGV3c a.l8sGWb")
-                if not title_elems:
-                    continue  # 沒有連結的活動略過
-                title_elem = title_elems[0]
-                title = title_elem.text.strip()
-                title_url = title_elem.get_attribute("href")
+                qtgv3c_text = act.find_element(By.CSS_SELECTOR, "div.QTGV3c").text.strip()
 
                 # 檢查是否為搜尋活動
-                if title_url and "search_query=" in title_url:
-                    if title_url in seen_search_urls:
+                if qtgv3c_text.startswith("搜尋「"):
+                    if qtgv3c_text in seen_search_urls:
                         continue
-                    seen_search_urls.add(title_url)
-                    print(f"[LOG] 搜尋活動偵測到：{title}", flush=True)
+                    seen_search_urls.add(qtgv3c_text)
+                    print(f"[LOG] 搜尋活動：{qtgv3c_text}", flush=True)
                     continue  # 目前不處理搜尋活動
 
                 # 檢查是否為已查看活動
-                qtgv3c_text = act.find_element(By.CSS_SELECTOR, "div.QTGV3c").text.strip()
                 if qtgv3c_text.startswith("已查看「"):
                     if qtgv3c_text in seen_logs:
                         continue
                     seen_logs.add(qtgv3c_text)
-                    print(f"[LOG] 已查看活動偵測到：{qtgv3c_text}", flush=True)
+                    print(f"[LOG] 已查看活動：{qtgv3c_text}", flush=True)
                     continue  # 目前不處理已查看活動
 
-                #
+                # 取得唯一ID（c-wiz 內 c-data 的 id 屬性）
                 try:
                     cdata = act.find_element(By.CSS_SELECTOR, "c-data")
                     unique_id = cdata.get_attribute('id')
                 except Exception:
                     unique_id = None
-
                 if not unique_id:
                     continue
-                # 用 set 加速比對
-                if unique_id and unique_id in seen_unique_ids:
+                if unique_id in seen_unique_ids:
                     continue
-                if unique_id:
-                    seen_unique_ids.add(unique_id)
+                seen_unique_ids.add(unique_id)
+
+                # 取得 title 與 title_url（從 QTGV3c 內的 a.l8sGWb 取得）
+                qtgv3c_elem = act.find_element(By.CSS_SELECTOR, "div.QTGV3c")
+                a_elem = qtgv3c_elem.find_element(By.CSS_SELECTOR, "a.l8sGWb")
+                title = a_elem.text.strip()
+                title_url = a_elem.get_attribute("href")
 
                 time_text = act.find_element(By.CSS_SELECTOR, "div.H3Q9vf.XTnvW").text
                 time_label = time_text.split("•")[0].strip()
-
-                if not last_header:
-                    continue  # skip if no header yet
 
                 full_time = f"{last_header} {time_label}"
                 time_iso = parse_time(full_time, today_str)
