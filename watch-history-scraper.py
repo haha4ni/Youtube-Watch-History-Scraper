@@ -20,7 +20,11 @@ class Tee:
         for f in self.files:
             f.flush()
 
-sys.stdout = Tee(sys.stdout, open('output_log.txt', 'a', encoding='utf-8'))
+def setup_logging(debug_mode):
+    if debug_mode:
+        log_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = f"output_log_{log_time}.txt"
+        sys.stdout = Tee(sys.stdout, open(log_filename, 'a', encoding='utf-8'))
 
 def load_cookies_from_file(filename):
     cookies = []
@@ -55,10 +59,13 @@ def parse_time(text, today_str):
             hour = 0 if hour == 12 else hour
         elif period == "上午" and hour == 12:
             hour = 0
+        elif period == "清晨":
+            # 清晨通常指 5~7 點，這裡直接用原始 hour
+            pass
         return hour, minute
 
     # 1. 2023年3月5日 上午10:20
-    m = re.match(r"(\d{4})年(\d{1,2})月(\d{1,2})日\s+(凌晨|上午|下午|晚上)(\d{1,2}):(\d{2})", text)
+    m = re.match(r"(\d{4})年(\d{1,2})月(\d{1,2})日\s+(凌晨|清晨|上午|下午|晚上)(\d{1,2}):(\d{2})", text)
     if m:
         year, month, day, period, hour, minute = m.groups()
         hour, minute = parse_hour(period, hour, minute)
@@ -66,7 +73,7 @@ def parse_time(text, today_str):
         return dt.isoformat() + "Z"
 
     # 2. 3月5日 上午10:20
-    m = re.match(r"(\d{1,2})月(\d{1,2})日\s+(凌晨|上午|下午|晚上)(\d{1,2}):(\d{2})", text)
+    m = re.match(r"(\d{1,2})月(\d{1,2})日\s+(凌晨|清晨|上午|下午|晚上)(\d{1,2}):(\d{2})", text)
     if m:
         month, day, period, hour, minute = m.groups()
         hour, minute = parse_hour(period, hour, minute)
@@ -79,7 +86,7 @@ def parse_time(text, today_str):
     if text.startswith("今天 ") or text.startswith("昨天 "):
         day_part, time_part = text.split()
         base_date = today if day_part == "今天" else today - timedelta(days=1)
-        m = re.match(r"(凌晨|上午|下午|晚上)(\d{1,2}):(\d{2})", time_part)
+        m = re.match(r"(凌晨|清晨|上午|下午|晚上)(\d{1,2}):(\d{2})", time_part)
         if not m:
             return None
         period, hour, minute = m.groups()
@@ -129,10 +136,10 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
             pass
     driver.refresh()
     time.sleep(5)
-    print("✅ 請在 5 秒內手動確認已登入並顯示活動頁面...")
-    for i in range(2, 0, -1):
-        print(f"{i}...")
+    for i in range(5, 0, -1):
+        print(f"\r請確認Cookie登入成功與否，會在 {i} 秒後繼續執行...", end="", flush=True)
         time.sleep(1)
+    print()  # 換行，避免覆蓋後續 log
 
     seen_headers = set()      # 日期 header 卡池
     seen_search_urls = set()  # 搜尋活動 url 卡池
@@ -145,21 +152,31 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
     rounds = 0
     empty_rounds = 0
     last_header = None
+    last_processed_idx = 0  # 新增：記錄上一輪處理到的 index
 
     while rounds < MAX_SCROLL_ROUNDS:
         print(f"\n[SCROLL] 第 {rounds + 1} 次捲動 🔽")
-        for _ in range(15):
+        for _ in range(2):
             scroll_one_step_to_bottom(driver, pause=5)
 
-        # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片，不限 jsrenderer
+        # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片
         activities = driver.find_elements(By.CSS_SELECTOR, "c-wiz.xDtZAf, div.CW0isc")
-        print(f"[INFO] 活動+日期區塊數量：{len(activities)}")
+        print(f"[INFO] 活動+日期區塊總數量：{len(activities)}")
         elapsed = time.time() - start_time
         print(f"[INFO] 程式已執行 {elapsed:.1f} 秒")
         new_found = 0
 
-        for act in activities:
+        skip_count = 0
+        processed_count = 0
+        for idx, act in enumerate(activities):
+            if idx < last_processed_idx:
+                skip_count += 1
+                print(f"\r[LOG] index={idx+1}/{len(activities)} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
+                continue  # 跳過前面已處理過的
+            processed_count += 1
+            print(f"\r[LOG] index={idx+1}/{len(activities)} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
             try:
+                # LOG 
                 headers = act.find_elements(By.CSS_SELECTOR, "div.MCZgpb > h2.rp10kf")
                 if headers:
                     latest = headers[-1].text.strip()
@@ -218,9 +235,6 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                     unique_id = None
                 if not unique_id:
                     continue
-                if unique_id in seen_unique_ids:
-                    continue
-                seen_unique_ids.add(unique_id)
 
                 # 取得 title 與 title_url（從 QTGV3c 內的 a.l8sGWb 取得）
                 qtgv3c_elem = act.find_element(By.CSS_SELECTOR, "div.QTGV3c")
@@ -234,6 +248,7 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                 full_time = f"{last_header} {time_label}"
                 time_iso = parse_time(full_time, today_str)
                 if not time_iso:
+                    # print(f"[WARN] 活動卡片缺少 unique_id={unique_id}，index={idx+1}，HTML：\n{act.get_attribute('outerHTML')}")
                     continue
 
                 subtitles = []
@@ -274,6 +289,8 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
             except Exception as e:
                 print(f"[ERR] 活動處理失敗：{e}")
                 continue
+        print()  # 換行，避免進度條覆蓋後續 log
+        last_processed_idx = len(activities)  # 記錄本輪最後一筆 index
 
         if new_found == 0:
             empty_rounds += 1
@@ -296,5 +313,7 @@ if __name__ == "__main__":
     parser.add_argument('--start-date', type=str, help='指定 max= 參數 (格式: YYYY/MM/DD)', default=None)
     parser.add_argument('--end-date', type=str, help='結束條件，遇到小於這天的活動就停止 (格式: YYYY/MM/DD)', default=None)
     parser.add_argument('--output', type=str, help='輸出檔案名稱', default='youtube_watch_history.json')
+    parser.add_argument('--debug', action='store_true', help='啟用 debug log 輸出到檔案')
     args = parser.parse_args()
+    setup_logging(args.debug)
     main(args.start_date, args.end_date, args.output)
