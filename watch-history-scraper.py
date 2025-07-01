@@ -134,7 +134,9 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
         print(f"{i}...")
         time.sleep(1)
 
-    seen_urls = set()
+    seen_headers = set()      # 日期 header 卡池
+    seen_search_urls = set()  # 搜尋活動 url 卡池
+    seen_unique_ids = set()   # 活動卡片 unique_id 卡池
     seen_logs = set()
     results = []
 
@@ -146,7 +148,7 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
     while rounds < MAX_SCROLL_ROUNDS:
         print(f"\n[SCROLL] 第 {rounds + 1} 次捲動 🔽")
-        for _ in range(10):
+        for _ in range(15):
             scroll_one_step_to_bottom(driver, pause=5)
 
         # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片，不限 jsrenderer
@@ -161,9 +163,9 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                 headers = act.find_elements(By.CSS_SELECTOR, "div.MCZgpb > h2.rp10kf")
                 if headers:
                     latest = headers[-1].text.strip()
-                    if latest in seen_urls:
+                    if latest in seen_headers:
                         continue
-                    seen_urls.add(latest)
+                    seen_headers.add(latest)
                     if latest and latest != last_header:
                         last_header = latest
                         print(f"[📅 日期更新] 現在使用：{last_header}")
@@ -192,9 +194,9 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
                 # 檢查是否為搜尋活動
                 if title_url and "search_query=" in title_url:
-                    if title_url in seen_urls:
+                    if title_url in seen_search_urls:
                         continue
-                    seen_urls.add(title_url)
+                    seen_search_urls.add(title_url)
                     print(f"[LOG] 搜尋活動偵測到：{title}", flush=True)
                     continue  # 目前不處理搜尋活動
 
@@ -207,15 +209,20 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                     print(f"[LOG] 已查看活動偵測到：{qtgv3c_text}", flush=True)
                     continue  # 目前不處理已查看活動
 
-                # 取得唯一ID（c-wiz 內 c-data 的 id 屬性）
+                #
                 try:
                     cdata = act.find_element(By.CSS_SELECTOR, "c-data")
                     unique_id = cdata.get_attribute('id')
                 except Exception:
                     unique_id = None
-                if unique_id in seen_urls or not title:
+
+                if not unique_id:
                     continue
-                seen_urls.add(unique_id)
+                # 用 set 加速比對
+                if unique_id and unique_id in seen_unique_ids:
+                    continue
+                if unique_id:
+                    seen_unique_ids.add(unique_id)
 
                 time_text = act.find_element(By.CSS_SELECTOR, "div.H3Q9vf.XTnvW").text
                 time_label = time_text.split("•")[0].strip()

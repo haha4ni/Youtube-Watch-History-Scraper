@@ -8,7 +8,7 @@
 
 ## 使用方式
 
-### 1. 安裝依賴
+### 1. 安裝套件
 ```bash
 pip install selenium webdriver-manager
 ```
@@ -18,14 +18,17 @@ pip install selenium webdriver-manager
 
 ### 3. 執行爬蟲
 ```bash
+python watch-history-scraper.py
+or
 python watch-history-scraper.py --start-date 2025/06/27 --end-date 2025/06/20 --output my_output.json
 ```
-- `--start-date`：指定爬取的起始日期（格式：YYYY/MM/DD）
-- `--end-date`：指定爬取的停止日期(包含)（格式：YYYY/MM/DD）
+- `--start-date`：爬取的起始日期（格式：YYYY/MM/DD），預設將從"今天"開始爬取
+- `--end-date`：爬取的停止日期(包含)（格式：YYYY/MM/DD），預設將會爬取到無資料為止
 - `--output`：輸出檔案名稱，預設為 `youtube_watch_history.json`
 
 ### 4. 自動開啟瀏覽器並登入
-- 執行時會自動開啟瀏覽器，請確認Google帳號登入成功，程式會在短時間停頓後開始執行。
+- 執行時會自動開啟瀏覽器，請確認Google帳號透過Cookie登入成功，程式會在短暫停頓後開始執行。
+- 執行期間網頁會自動滾動，請不要進行觸碰與控制網頁，有機率爬不到資料。
 
 ## 輸出格式
 每一筆紀錄都會已以下格式儲存
