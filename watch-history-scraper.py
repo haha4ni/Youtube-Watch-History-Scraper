@@ -135,16 +135,13 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
         except:
             pass
     driver.refresh()
+
     time.sleep(5)
     for i in range(5, 0, -1):
         print(f"\r請確認Cookie登入成功與否，會在 {i} 秒後繼續執行...", end="", flush=True)
         time.sleep(1)
-    print()  # 換行，避免覆蓋後續 log
+    print()
 
-    seen_headers = set()      # 日期 header 卡池
-    seen_search_urls = set()  # 搜尋活動 url 卡池
-    seen_unique_ids = set()   # 活動卡片 unique_id 卡池
-    seen_logs = set()
     results = []
 
     MAX_SCROLL_ROUNDS = float('inf')
@@ -154,16 +151,26 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
     last_header = None
     last_processed_idx = 0  # 新增：記錄上一輪處理到的 index
 
+    date_count = 0
+    search_count = 0
+    viewed_count = 0
+    watched_count = 0
+
+    should_stop = False  # 新增：終止條件 flag
     while rounds < MAX_SCROLL_ROUNDS:
+        if should_stop:
+            break
+
         print(f"\n[SCROLL] 第 {rounds + 1} 次捲動 🔽")
         for _ in range(2):
             scroll_one_step_to_bottom(driver, pause=5)
 
         # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片
         activities = driver.find_elements(By.CSS_SELECTOR, "c-wiz.xDtZAf, div.CW0isc")
-        print(f"[INFO] 活動+日期區塊總數量：{len(activities)}")
+        print(f"[INFO] 區塊總數量：{len(activities)}")
         elapsed = time.time() - start_time
         print(f"[INFO] 程式已執行 {elapsed:.1f} 秒")
+
         new_found = 0
 
         skip_count = 0
@@ -175,58 +182,51 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                 continue  # 跳過前面已處理過的
             processed_count += 1
             print(f"\r[LOG] index={idx+1}/{len(activities)} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
+            
             try:
                 # LOG 
                 headers = act.find_elements(By.CSS_SELECTOR, "div.MCZgpb > h2.rp10kf")
                 if headers:
                     latest = headers[-1].text.strip()
-                    if latest in seen_headers:
-                        continue
-                    seen_headers.add(latest)
-                    if latest and latest != last_header:
-                        last_header = latest
-                        print(f"[📅 日期更新] 現在使用：{last_header}")
-                        # 檢查日期是否早於 end_date，若是則終止
-                        if end_dt:
-                            try:
-                                # 支援有年份、無年份、今天、昨天格式
-                                if "年" in last_header:
-                                    header_dt = datetime.strptime(last_header, "%Y年%m月%d日")
-                                elif "今天" in last_header:
-                                    header_dt = datetime.today()
-                                elif "昨天" in last_header:
-                                    header_dt = datetime.today() - timedelta(days=1)
-                                else:
-                                    header_dt = datetime.strptime(f"{datetime.today().year}年" + last_header, "%Y年%m月%d日")
-                                if header_dt < end_dt:
-                                    print(f"[STOP] 已達結束日期 {end_date}，終止爬蟲")
-                                    elapsed = time.time() - start_time
-                                    print(f"[INFO] 程式總執行時間：{elapsed:.1f} 秒")
-                                    driver.quit()
-                                    print(f"\n✅ 共儲存 {len(results)} 筆活動至 {output_file}")
-                                    return
-                            except Exception as e:
-                                print(f"[WARN] 日期解析失敗: {e}")
+                    date_count += 1
+                    last_header = latest
+                    print(f"[📅 日期更新] 現在使用：{last_header}")
+                    # 檢查日期是否早於 end_date，若是則終止
+                    if end_dt:
+                        try:
+                            # 支援有年份、無年份、今天、昨天格式
+                            if "年" in last_header:
+                                header_dt = datetime.strptime(last_header, "%Y年%m月%d日")
+                            elif "今天" in last_header:
+                                header_dt = datetime.today()
+                            elif "昨天" in last_header:
+                                header_dt = datetime.today() - timedelta(days=1)
+                            else:
+                                header_dt = datetime.strptime(f"{datetime.today().year}年" + last_header, "%Y年%m月%d日")
+                            if header_dt < end_dt:
+                                print(f"[STOP] 已達結束日期 {end_date}，終止爬蟲")
+                                should_stop = True  # 新增：設為 True
+                                break
+                        except Exception as e:
+                            print(f"[WARN] 日期解析失敗: {e}")
                     continue
 
+                # 捕捉活動
                 qtgv3c_text = act.find_element(By.CSS_SELECTOR, "div.QTGV3c").text.strip()
 
                 # 檢查是否為搜尋活動
                 if qtgv3c_text.startswith("搜尋「"):
-                    if qtgv3c_text in seen_search_urls:
-                        continue
-                    seen_search_urls.add(qtgv3c_text)
+                    search_count += 1
                     print(f"[LOG] 搜尋活動：{qtgv3c_text}", flush=True)
-                    continue  # 目前不處理搜尋活動
+                    continue
 
                 # 檢查是否為已查看活動
                 if qtgv3c_text.startswith("已查看「"):
-                    if qtgv3c_text in seen_logs:
-                        continue
-                    seen_logs.add(qtgv3c_text)
+                    viewed_count += 1
                     print(f"[LOG] 已查看活動：{qtgv3c_text}", flush=True)
-                    continue  # 目前不處理已查看活動
+                    continue
 
+                # 檢查是否為觀看活動
                 # 取得唯一ID（c-wiz 內 c-data 的 id 屬性）
                 try:
                     cdata = act.find_element(By.CSS_SELECTOR, "c-data")
@@ -247,9 +247,6 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
                 full_time = f"{last_header} {time_label}"
                 time_iso = parse_time(full_time, today_str)
-                if not time_iso:
-                    # print(f"[WARN] 活動卡片缺少 unique_id={unique_id}，index={idx+1}，HTML：\n{act.get_attribute('outerHTML')}")
-                    continue
 
                 subtitles = []
                 try:
@@ -285,6 +282,7 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                 if subtitles and isinstance(subtitles, list) and len(subtitles) > 0:
                     channel_display = f" | 頻道：{subtitles[0]['name']}"
                 print(f"[✓] 新增：{title} @ {time_iso}{channel_display}")
+                watched_count += 1
 
             except Exception as e:
                 print(f"[ERR] 活動處理失敗：{e}")
@@ -303,9 +301,15 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
         rounds += 1
 
-    elapsed = time.time() - start_time
-    print(f"[INFO] 程式總執行時間：{elapsed:.1f} 秒")
-    print(f"\n✅ 共儲存 {len(results)} 筆活動至 {output_file}")
+    print("\n[統計結果]")
+    print(f"  掃描區塊 / 總加載區塊: {idx+1 if 'idx' in locals() else 0} / {len(activities)}")
+    print()
+    elapsed_sec = int(time.time() - start_time)
+    minutes, seconds = divmod(elapsed_sec, 60)
+    print(f"  執行時間: {minutes}分{seconds}秒")
+    print(f"  觀看紀錄: {watched_count} 筆")
+    # print(f"  活動紀錄: {date_count} {viewed_count} {search_count}")
+    print(f"  共儲存 {len(results)} 筆觀看紀錄至 {output_file}")
     driver.quit()
 
 if __name__ == "__main__":
