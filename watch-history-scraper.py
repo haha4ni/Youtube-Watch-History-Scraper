@@ -162,12 +162,13 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
             break
 
         print(f"\n[SCROLL] 第 {rounds + 1} 次捲動 🔽")
-        for _ in range(2):
+        for _ in range(20):
             scroll_one_step_to_bottom(driver, pause=5)
 
         # 搜索所有 c-wiz[class*='xDtZAf'] 以涵蓋所有活動卡片
         activities = driver.find_elements(By.CSS_SELECTOR, "c-wiz.xDtZAf, div.CW0isc")
-        print(f"[INFO] 區塊總數量：{len(activities)}")
+        activities_len = len(activities)
+        print(f"[INFO] 區塊總數量：{activities_len}")
         elapsed = time.time() - start_time
         print(f"[INFO] 程式已執行 {elapsed:.1f} 秒")
 
@@ -177,11 +178,13 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
         processed_count = 0
         for idx, act in enumerate(activities):
             if idx < last_processed_idx:
-                skip_count += 1
-                print(f"\r[LOG] index={idx+1}/{len(activities)} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
+                skip_count = last_processed_idx
+                index =  last_processed_idx
+
+                print(f"\r[LOG] index={idx+1}/{activities_len} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
                 continue  # 跳過前面已處理過的
             processed_count += 1
-            print(f"\r[LOG] index={idx+1}/{len(activities)} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
+            print(f"\r[LOG] index={idx+1}/{activities_len} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
             
             try:
                 # LOG 
@@ -267,15 +270,6 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                     "activityControls": ["YouTube watch history"]
                 })
 
-                # 每新增一筆就即時寫入 json 檔案
-                with open(output_file, "w", encoding="utf-8") as f:
-                    text = json.dumps(results, ensure_ascii=False, indent=2)
-                    text = text.replace('},\n  {', '},{')
-                    # 處理只有一個元素的陣列（subtitles/products/activityControls等）壓成一行，陣列後面可接逗號或右大括號
-                    text = re.sub(r'\[\n\s+({.*?})\n\s+\](,?)', r'[\1]\2', text)
-                    text = re.sub(r'\[\n\s+(".*?")\n\s+\](,?)', r'[\1]\2', text)
-                    f.write(text)
-
                 new_found += 1
                 # 取得頻道名稱（若有）
                 channel_display = ""
@@ -283,12 +277,20 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
                     channel_display = f" | 頻道：{subtitles[0]['name']}"
                 print(f"[✓] 新增：{title} @ {time_iso}{channel_display}")
                 watched_count += 1
-
             except Exception as e:
                 print(f"[ERR] 活動處理失敗：{e}")
                 continue
         print()  # 換行，避免進度條覆蓋後續 log
         last_processed_idx = len(activities)  # 記錄本輪最後一筆 index
+
+        # 寫入 JSON 檔案（每大圈捲動一次）
+        with open(output_file, "w", encoding="utf-8") as f:
+            text = json.dumps(results, ensure_ascii=False, indent=2)
+            text = text.replace('},\n  {', '},{')
+            # 處理只有一個元素的陣列（subtitles/products/activityControls等）壓成一行，陣列後面可接逗號或右大括號
+            text = re.sub(r'\[\n\s+({.*?})\n\s+\](,?)', r'[\1]\2', text)
+            text = re.sub(r'\[\n\s+(".*?")\n\s+\](,?)', r'[\1]\2', text)
+            f.write(text)
 
         if new_found == 0:
             empty_rounds += 1
@@ -300,6 +302,8 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
             empty_rounds = 0
 
         rounds += 1
+
+
 
     print("\n[統計結果]")
     print(f"  掃描區塊 / 總加載區塊: {idx+1 if 'idx' in locals() else 0} / {len(activities)}")
