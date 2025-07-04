@@ -173,19 +173,10 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
         print(f"[INFO] 程式已執行 {elapsed:.1f} 秒")
 
         new_found = 0
+        for idx, act in enumerate(activities[last_processed_idx:]):
+            real_idx = idx + last_processed_idx
+            print(f"\r[LOG] index={real_idx+1}/{activities_len}", end="", flush=True)
 
-        skip_count = 0
-        processed_count = 0
-        for idx, act in enumerate(activities):
-            if idx < last_processed_idx:
-                skip_count = last_processed_idx
-                index =  last_processed_idx
-
-                print(f"\r[LOG] index={idx+1}/{activities_len} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
-                continue  # 跳過前面已處理過的
-            processed_count += 1
-            print(f"\r[LOG] index={idx+1}/{activities_len} | 處理: {processed_count} | skip: {skip_count}", end="", flush=True)
-            
             try:
                 # LOG 
                 headers = act.find_elements(By.CSS_SELECTOR, "div.MCZgpb > h2.rp10kf")
@@ -306,7 +297,7 @@ def main(start_date=None, end_date=None, output_file="youtube_watch_history.json
 
 
     print("\n[統計結果]")
-    print(f"  掃描區塊 / 總加載區塊: {idx+1 if 'idx' in locals() else 0} / {len(activities)}")
+    print(f"  掃描區塊 / 總加載區塊: {real_idx+1 if 'real_idx' in locals() else 0} / {activities_len}")
     print()
     elapsed_sec = int(time.time() - start_time)
     minutes, seconds = divmod(elapsed_sec, 60)
